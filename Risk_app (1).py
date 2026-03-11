@@ -427,7 +427,7 @@ with st.sidebar:
         "<li>Charlotte E Makuleke</li>"
         "</ul>"
         "<p style='font-size:0.78rem; margin-top:0.5rem; opacity:0.8;'>"
-        "BSc Hons Actuarial Science<br>NUST - Course Code: 1202</p>"
+        "BSc Hons Actuarial Science<br>NUST </p>"
         "</div>",
         unsafe_allow_html=True
     )
@@ -483,19 +483,7 @@ with st.sidebar:
         save_database()
         st.success("Saved!")
 
-    st.markdown("---")
-    st.markdown(
-        "<div class='deploy-box'>"
-        "<b>Share This App Online</b><br>"
-        "<small>"
-        "1. Upload <code>Risk_app.py</code> to GitHub<br>"
-        "2. Go to <b>share.streamlit.io</b><br>"
-        "3. Connect repo and deploy<br>"
-        "4. Share the public link<br><br>"
-        "Local: <code>streamlit run Risk_app.py</code>"
-        "</small>"
-        "</div>",
-        unsafe_allow_html=True
+   
     )
 
 # ==================== CURRENCY HISTORY EXPANDER ====================
