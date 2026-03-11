@@ -1,8 +1,6 @@
 # -----------------------------
 # RISKSHIELD ZIMBABWE - COMPLETE INSURANCE MANAGEMENT SYSTEM
-# Version 7.0 - Fixed & Enhanced
 # National University of Science and Technology
-# Actuarial Science Group 27
 # -----------------------------
 
 import pandas as pd
@@ -457,7 +455,6 @@ with st.sidebar:
         </ul>
         <p style="font-size:0.78rem; margin-top:0.5rem; opacity:0.8;">
             BSc Hons Actuarial Science<br>
-            NUST • Course Code: 1202
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -481,22 +478,7 @@ with st.sidebar:
     current_val = convert_historical_to_current(hist_amount, hist_date, curr_h)
     st.info(f"**{hist_date}**\n\n{hist_amount:,.0f} {curr_h} = **${hist_amount/rate_h:,.2f} USD**\n\n**Today:** ZiG {current_val:,.2f}")
 
-    # Deploy info
-    st.markdown("---")
-    st.markdown("""
-    <div class="deploy-box">
-        <b>🌐 Share This App</b><br>
-        <small>
-        To deploy & share:<br>
-        1. Push code to <b>GitHub</b><br>
-        2. Visit <b>share.streamlit.io</b><br>
-        3. Connect your repo<br>
-        4. Get a public link 🔗<br><br>
-        <b>Or run locally:</b><br>
-        <code>streamlit run Risk_app.py</code>
-        </small>
-    </div>
-    """, unsafe_allow_html=True)
+   
 
     if st.button("🔄 Force RBZ Refresh", key="sidebar_refresh_btn"):
         st.session_state.rbz_current = fetch_rbz_data()
