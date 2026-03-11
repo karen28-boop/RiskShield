@@ -24,6 +24,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 # ==================== LOGO & BRANDING ====================
 
 def get_logo_svg():
@@ -157,7 +158,119 @@ def fetch_historical_rbz_data():
         'Currency': currency
     })
 
+
+# ==================== PERSISTENT DATABASE (JSON FILE STORAGE) ====================
+# Data is saved to riskshield_data.json on disk.
+# This means ALL clients, assets, claims and payments added by ANY user are
+# stored permanently and shared across all sessions — restarts do NOT wipe them.
+# Records are only removed when a user explicitly clicks the Delete button.
+
+DB_FILE = "riskshield_data.json"
+
+def _df_to_records(df: pd.DataFrame) -> list:
+    """Convert a DataFrame to a JSON-safe list of dicts."""
+    records = []
+    for rec in df.to_dict(orient="records"):
+        clean = {}
+        for k, v in rec.items():
+            if isinstance(v, (pd.Timestamp, datetime)):
+                clean[k] = str(v)
+            elif isinstance(v, date):
+                clean[k] = str(v)
+            elif hasattr(v, "item"):          # numpy scalar → Python native
+                clean[k] = v.item()
+            elif v is None or (isinstance(v, float) and np.isnan(v)):
+                clean[k] = None
+            else:
+                clean[k] = v
+        records.append(clean)
+    return records
+
+def save_database():
+    """Persist the full application state to disk immediately."""
+    payload = {
+        "clients":          st.session_state.clients,
+        "assets":           _df_to_records(st.session_state.assets),
+        "claims":           _df_to_records(st.session_state.claims),
+        "payments":         _df_to_records(st.session_state.payments),
+        "capital_reserves": st.session_state.capital_reserves,
+        "last_saved":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    with open(DB_FILE, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, default=str)
+    st.session_state.db_last_saved = payload["last_saved"]
+
+def load_database() -> dict:
+    """Read persisted data from disk; return clean defaults if file missing."""
+    defaults = {
+        "clients": {},
+        "assets":  [],
+        "claims":  [],
+        "payments": [],
+        "capital_reserves": {
+            "required_capital":  0,
+            "available_capital": 50_000_000,
+            "solvency_ratio":    0,
+            "last_calculated":   datetime.now().strftime("%Y-%m-%d"),
+        },
+        "last_saved": None,
+    }
+    if not os.path.exists(DB_FILE):
+        return defaults
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        for key, val in defaults.items():   # back-fill any missing keys
+            if key not in data:
+                data[key] = val
+        return data
+    except Exception:
+        return defaults
+
+def _rebuild_df(records: list, columns: list) -> pd.DataFrame:
+    """Rebuild a DataFrame from stored records, ensuring all columns exist."""
+    if not records:
+        return pd.DataFrame(columns=columns)
+    df = pd.DataFrame(records)
+    for col in columns:                     # add any missing columns
+        if col not in df.columns:
+            df[col] = None
+    return df[columns]
+
+_ASSET_COLS = [
+    'Client_ID', 'Asset_ID', 'Asset_Type', 'Asset_Description', 'Asset_Value',
+    'Asset_Value_USD', 'Purchase_Date', 'Condition', 'Insurance_Status',
+    'Policy_Number', 'Inflation_Adjustment', 'Last_Valuation_Date',
+    'Premium', 'Premium_USD', 'Policy_Term_Months', 'Inception_Date',
+    'Lapsing_Rate', 'Currency_At_Inception', 'RBZ_Class',
+    'Original_Currency', 'Original_Amount', 'Conversion_History',
+]
+_CLAIM_COLS = [
+    'Claim_ID', 'Client_ID', 'Asset_ID', 'Claim_Date', 'Claim_Amount',
+    'Claim_Amount_USD', 'Claim_Type', 'Severity_Level', 'Inflation_Impact',
+    'Settlement_Amount', 'Settlement_Amount_USD', 'Status', 'Processed_By',
+    'Trust_Score_Impact', 'Days_To_Settle', 'Currency_At_Claim',
+]
+_PAY_COLS = [
+    'Date', 'Client_ID', 'Asset_ID', 'Payment_Amount', 'Payment_Amount_USD',
+    'Payment_Method', 'Status', 'Notes', 'Processed_By', 'Payment_Currency',
+    'Exchange_Rate_Used',
+]
+
 # ==================== INITIALIZE SESSION STATES ====================
+# 'db_loaded' acts as a one-time flag per browser session.
+# Once set, we never re-load from disk (so in-memory changes aren't clobbered),
+# but every write also calls save_database() to persist to disk immediately.
+
+if "db_loaded" not in st.session_state:
+    _db = load_database()
+    st.session_state.clients          = _db["clients"]
+    st.session_state.assets           = _rebuild_df(_db["assets"],  _ASSET_COLS)
+    st.session_state.claims           = _rebuild_df(_db["claims"],  _CLAIM_COLS)
+    st.session_state.payments         = _rebuild_df(_db["payments"], _PAY_COLS)
+    st.session_state.capital_reserves = _db["capital_reserves"]
+    st.session_state.db_last_saved    = _db.get("last_saved", "Never")
+    st.session_state.db_loaded        = True
 
 if 'currency_history' not in st.session_state:
     st.session_state.currency_history = get_complete_currency_history()
@@ -167,46 +280,16 @@ if 'rbz_historical' not in st.session_state:
     st.session_state.rbz_historical = fetch_historical_rbz_data()
 if 'last_update' not in st.session_state:
     st.session_state.last_update = datetime.now()
-if 'clients' not in st.session_state:
-    st.session_state.clients = {}
-if 'assets' not in st.session_state:
-    st.session_state.assets = pd.DataFrame(columns=[
-        'Client_ID', 'Asset_ID', 'Asset_Type', 'Asset_Description', 'Asset_Value',
-        'Asset_Value_USD', 'Purchase_Date', 'Condition', 'Insurance_Status',
-        'Policy_Number', 'Inflation_Adjustment', 'Last_Valuation_Date',
-        'Premium', 'Premium_USD', 'Policy_Term_Months', 'Inception_Date',
-        'Lapsing_Rate', 'Currency_At_Inception', 'RBZ_Class',
-        'Original_Currency', 'Original_Amount', 'Conversion_History'
-    ])
-if 'claims' not in st.session_state:
-    st.session_state.claims = pd.DataFrame(columns=[
-        'Claim_ID', 'Client_ID', 'Asset_ID', 'Claim_Date', 'Claim_Amount',
-        'Claim_Amount_USD', 'Claim_Type', 'Severity_Level', 'Inflation_Impact',
-        'Settlement_Amount', 'Settlement_Amount_USD', 'Status', 'Processed_By',
-        'Trust_Score_Impact', 'Days_To_Settle', 'Currency_At_Claim'
-    ])
-if 'payments' not in st.session_state:
-    st.session_state.payments = pd.DataFrame(columns=[
-        'Date', 'Client_ID', 'Asset_ID', 'Payment_Amount', 'Payment_Amount_USD',
-        'Payment_Method', 'Status', 'Notes', 'Processed_By', 'Payment_Currency',
-        'Exchange_Rate_Used'
-    ])
-if 'capital_reserves' not in st.session_state:
-    st.session_state.capital_reserves = {
-        'required_capital': 0,
-        'available_capital': 50_000_000,
-        'solvency_ratio': 0,
-        'last_calculated': datetime.now().strftime('%Y-%m-%d')
-    }
 if 'profit_testing' not in st.session_state:
     st.session_state.profit_testing = pd.DataFrame()
 if 'rbz_classes' not in st.session_state:
     st.session_state.rbz_classes = {
-        'Class A – Low Risk': {'capital_factor': 0.05, 'max_lapsing': 0.10, 'description': 'Government bonds, Cash'},
-        'Class B – Moderate Risk': {'capital_factor': 0.10, 'max_lapsing': 0.15, 'description': 'Corporate bonds, Property'},
-        'Class C – High Risk': {'capital_factor': 0.20, 'max_lapsing': 0.25, 'description': 'Equities, Vehicles'},
-        'Class D – Speculative': {'capital_factor': 0.35, 'max_lapsing': 0.40, 'description': 'Cryptocurrency, Startups'}
+        'Class A – Low Risk':    {'capital_factor': 0.05, 'max_lapsing': 0.10, 'description': 'Government bonds, Cash'},
+        'Class B – Moderate Risk':{'capital_factor': 0.10, 'max_lapsing': 0.15, 'description': 'Corporate bonds, Property'},
+        'Class C – High Risk':   {'capital_factor': 0.20, 'max_lapsing': 0.25, 'description': 'Equities, Vehicles'},
+        'Class D – Speculative': {'capital_factor': 0.35, 'max_lapsing': 0.40, 'description': 'Cryptocurrency, Startups'},
     }
+
 
 # Authors list (no positions)
 AUTHORS = [
@@ -455,6 +538,7 @@ with st.sidebar:
         </ul>
         <p style="font-size:0.78rem; margin-top:0.5rem; opacity:0.8;">
             BSc Hons Actuarial Science<br>
+            NUST • Course Code: 1202
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -478,14 +562,37 @@ with st.sidebar:
     current_val = convert_historical_to_current(hist_amount, hist_date, curr_h)
     st.info(f"**{hist_date}**\n\n{hist_amount:,.0f} {curr_h} = **${hist_amount/rate_h:,.2f} USD**\n\n**Today:** ZiG {current_val:,.2f}")
 
+    # Database status
+    st.markdown("---")
+    db_exists = os.path.exists(DB_FILE)
+    total_clients = len(st.session_state.clients)
+    total_policies = len(st.session_state.assets)
+    last_saved = st.session_state.get("db_last_saved", "Never")
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#e8f5e9,#f1f8e9);
+                border-left:4px solid #2e7d32; padding:0.8rem 1rem;
+                border-radius:0 0.5rem 0.5rem 0; font-size:0.82rem;">
+        <b>💾 Persistent Database</b><br>
+        📁 File: <code>riskshield_data.json</code><br>
+        👥 Clients stored: <b>{total_clients}</b><br>
+        📋 Policies stored: <b>{total_policies}</b><br>
+        🕐 Last saved: <b>{last_saved}</b><br>
+        <span style="color:#2e7d32;">✅ Data survives restarts</span>
+    </div>
+    """, unsafe_allow_html=True)
+
    
 
-    if st.button("🔄 Force RBZ Refresh", key="sidebar_refresh_btn"):
+    col_rb1, col_rb2 = st.columns(2)
+    if col_rb1.button("🔄 Refresh RBZ", key="sidebar_refresh_btn"):
         st.session_state.rbz_current = fetch_rbz_data()
         st.session_state.rbz_historical = fetch_historical_rbz_data()
         st.session_state.last_update = datetime.now()
         st.success("✅ RBZ Data Refreshed!")
         st.rerun()
+    if col_rb2.button("💾 Save Now", key="sidebar_save_btn"):
+        save_database()
+        st.success("✅ Saved!")
 
 # ==================== CURRENCY HISTORY EXPANDER ====================
 
@@ -561,6 +668,7 @@ with tab1:
                         'Has_Historical_Policies': has_historical,
                         'Trust_Score': 85, 'Status': 'Active'
                     }
+                    save_database()
                     st.success(f"✅ Client registered! ID: **{cid}**")
                     st.rerun()
                 else:
@@ -580,6 +688,7 @@ with tab1:
                         st.warning("⚠️ Has pre-ZiG historical policies")
                     if st.button(f"🗑️ Delete {cid}", key=f"del_cl_{cid}"):
                         del st.session_state.clients[cid]
+                        save_database()
                         st.success("Deleted.")
                         st.rerun()
         else:
@@ -665,6 +774,7 @@ with tab2:
                         }])
                         st.session_state.assets = pd.concat(
                             [st.session_state.assets, new_asset], ignore_index=True)
+                        save_database()
                         st.success(f"✅ Policy issued: **{pol_num}**")
                         st.rerun()
                     else:
@@ -685,6 +795,7 @@ with tab2:
                             st.info(f"History: {asset['Conversion_History']}")
                         if st.button("🗑️ Delete", key=f"del_ast_{idx}"):
                             st.session_state.assets = st.session_state.assets.drop(idx).reset_index(drop=True)
+                            save_database()
                             st.rerun()
             else:
                 st.info("No policies issued yet.")
@@ -733,6 +844,7 @@ with tab3:
                         }])
                         st.session_state.payments = pd.concat(
                             [st.session_state.payments, new_pay], ignore_index=True)
+                        save_database()
                         st.success("✅ Payment recorded!")
                         st.rerun()
 
@@ -806,6 +918,7 @@ with tab4:
                         }])
                         st.session_state.claims = pd.concat(
                             [st.session_state.claims, new_claim], ignore_index=True)
+                        save_database()
                         st.success(f"✅ Claim filed: **{cid_new}**")
                         st.rerun()
         else:
@@ -1028,6 +1141,7 @@ with tab7:
     with col_c2:
         if st.button("💵 Add Capital", key="add_cap_btn"):
             st.session_state.capital_reserves['available_capital'] += add_cap
+            save_database()
             st.success(f"✅ Added ZiG {add_cap:,.0f}")
             st.rerun()
 
@@ -1168,7 +1282,7 @@ with tab9:
             </p>
             <p style="font-size:0.82rem; margin-top:0.5rem; opacity:0.85;">
                 BSc Honours Actuarial Science &nbsp;|&nbsp; NUST &nbsp;|&nbsp;
-                Introduction to Programming (Python) &nbsp;|&nbsp; Course Code: 1202
+                Introduction to Programming (Python) &nbsp
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -1182,20 +1296,7 @@ with tab9:
         🌐 www.riskshield.co.zw
         """)
 
-        # Deployment guide
-        st.subheader("🌐 Share / Deploy Online")
-        st.markdown("""
-        <div class="deploy-box">
-            <b>Deploy to Streamlit Community Cloud (FREE):</b><br>
-            <ol style="margin:0.3rem 0; padding-left:1.2rem; font-size:0.88rem;">
-                <li>Upload <code>Risk_app.py</code> to a GitHub repository</li>
-                <li>Go to <a href="https://share.streamlit.io" target="_blank">share.streamlit.io</a></li>
-                <li>Sign in with GitHub and select your repo</li>
-                <li>Set Main file path: <code>Risk_app.py</code></li>
-                <li>Click <b>Deploy</b> — get a shareable public link!</li>
-            </ol>
-            <b>Requirements file</b> (<code>requirements.txt</code>):
-            <pre style="font-size:0.8rem; margin:0.3rem 0;">streamlit
+       
 pandas
 numpy
 matplotlib
@@ -1222,7 +1323,7 @@ st.markdown(f"""
         Kudakwashe Muzanenhamo &nbsp;|&nbsp; Godfrey Masasa &nbsp;|&nbsp; Charlotte E Makuleke
     </p>
     <p style='font-size:0.78rem; margin:0.2rem 0; color:#888;'>
-        BSc Honours Actuarial Science &nbsp;|&nbsp; NUST &nbsp;|&nbsp; Course Code: 1202 &nbsp;|&nbsp;
+        BSc Honours Actuarial Science &nbsp;|&nbsp; NUST &nbsp;|&nbsp;
         Data Source: {rates['source']} &nbsp;|&nbsp; Last Update: {rates['last_updated']}
     </p>
     <p style='font-size:0.78rem; color:#999; margin:0.2rem 0;'>
