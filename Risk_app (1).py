@@ -484,7 +484,7 @@ with st.sidebar:
         st.success("Saved!")
 
    
-    )
+    
 
 # ==================== CURRENCY HISTORY EXPANDER ====================
 
