@@ -1125,7 +1125,6 @@ with tab9:
             "</p>"
             "<p style='font-size:0.82rem; margin-top:0.5rem; opacity:0.85;'>"
             "BSc Honours Actuarial Science | NUST | "
-            "Introduction to Programming (Python) | Course Code: 1202"
             "</p>"
             "</div>",
             unsafe_allow_html=True
